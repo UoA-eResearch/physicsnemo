@@ -171,3 +171,7 @@ multirun/
 
 # SLURM
 slurm-*.out
+
+# custom
+hcast_nc
+NZ_GEFS
