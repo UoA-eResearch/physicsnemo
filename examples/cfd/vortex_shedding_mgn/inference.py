@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -19,7 +19,6 @@ import os
 import hydra
 from hydra.utils import to_absolute_path
 
-from dgl.dataloading import GraphDataLoader
 import matplotlib.pyplot as plt
 from matplotlib import animation
 from matplotlib import tri as mtri
@@ -27,11 +26,12 @@ from matplotlib.patches import Rectangle
 import numpy as np
 from omegaconf import DictConfig
 import torch
+from torch_geometric.loader import DataLoader as PyGDataLoader
 
 from physicsnemo.models.meshgraphnet import MeshGraphNet
 from physicsnemo.datapipes.gnn.vortex_shedding_dataset import VortexSheddingDataset
-from physicsnemo.launch.logging import PythonLogger
-from physicsnemo.launch.utils import load_checkpoint
+from physicsnemo.utils.logging import PythonLogger
+from physicsnemo.utils import load_checkpoint
 
 
 class MGNRollout:
@@ -53,7 +53,7 @@ class MGNRollout:
         )
 
         # instantiate dataloader
-        self.dataloader = GraphDataLoader(
+        self.dataloader = PyGDataLoader(
             self.dataset,
             batch_size=1,  # TODO add support for batch_size > 1
             shuffle=False,
@@ -71,7 +71,7 @@ class MGNRollout:
             recompute_activation=cfg.recompute_activation,
         )
         if cfg.jit:
-            self.model = torch.jit.script(self.model).to(self.device)
+            self.model = torch.compile(self.model).to(self.device)
         else:
             self.model = self.model.to(self.device)
 
@@ -95,22 +95,22 @@ class MGNRollout:
         for i, (graph, cells, mask) in enumerate(self.dataloader):
             graph = graph.to(self.device)
             # denormalize data
-            graph.ndata["x"][:, 0:2] = self.dataset.denormalize(
-                graph.ndata["x"][:, 0:2], stats["velocity_mean"], stats["velocity_std"]
+            graph.x[:, 0:2] = self.dataset.denormalize(
+                graph.x[:, 0:2], stats["velocity_mean"], stats["velocity_std"]
             )
-            graph.ndata["y"][:, 0:2] = self.dataset.denormalize(
-                graph.ndata["y"][:, 0:2],
+            graph.y[:, 0:2] = self.dataset.denormalize(
+                graph.y[:, 0:2],
                 stats["velocity_diff_mean"],
                 stats["velocity_diff_std"],
             )
-            graph.ndata["y"][:, [2]] = self.dataset.denormalize(
-                graph.ndata["y"][:, [2]],
+            graph.y[:, [2]] = self.dataset.denormalize(
+                graph.y[:, [2]],
                 stats["pressure_mean"],
                 stats["pressure_std"],
             )
 
             # inference step
-            invar = graph.ndata["x"].clone()
+            invar = graph.x.clone()
 
             if i % (self.num_test_time_steps - 1) != 0:
                 invar[:, 0:2] = self.pred[i - 1][:, 0:2].clone()
@@ -118,7 +118,7 @@ class MGNRollout:
             invar[:, 0:2] = self.dataset.normalize_node(
                 invar[:, 0:2], stats["velocity_mean"], stats["velocity_std"]
             )
-            pred_i = self.model(invar, graph.edata["x"], graph).detach()  # predict
+            pred_i = self.model(invar, graph.edge_attr, graph).detach()  # predict
 
             # denormalize prediction
             pred_i[:, 0:2] = self.dataset.denormalize(
@@ -146,8 +146,8 @@ class MGNRollout:
             self.exact.append(
                 torch.cat(
                     (
-                        (graph.ndata["y"][:, 0:2] + graph.ndata["x"][:, 0:2]),
-                        graph.ndata["y"][:, [2]],
+                        (graph.y[:, 0:2] + graph.x[:, 0:2]),
+                        graph.y[:, [2]],
                     ),
                     dim=-1,
                 ).cpu()
@@ -185,8 +185,8 @@ class MGNRollout:
         y_star = self.pred_i[num].numpy()
         y_exact = self.exact_i[num].numpy()
         triang = mtri.Triangulation(
-            graph.ndata["mesh_pos"][:, 0].numpy(),
-            graph.ndata["mesh_pos"][:, 1].numpy(),
+            graph["mesh_pos"][:, 0].numpy(),
+            graph["mesh_pos"][:, 1].numpy(),
             self.faces[num],
         )
         self.ax[0].cla()

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -19,7 +19,7 @@
 # 2.6.0+ works
 # 2.5.X and lower does not work
 
-from physicsnemo.utils.version_check import check_module_requirements
+import torch
 
 from .autograd import all_gather_v, gather_v, indexed_all_to_all_v, scatter_v
 from .config import ProcessGroupConfig, ProcessGroupNode
@@ -35,25 +35,3 @@ from .utils import (
     reduce_loss,
     unmark_module_as_shared,
 )
-
-try:
-    check_module_requirements("physicsnemo.distributed.shard_tensor")
-
-    # In minumum versions are met, we can import the shard tensor and spec.
-
-    from ._shard_tensor_spec import ShardTensorSpec
-    from .shard_tensor import ShardTensor, scatter_tensor
-
-    def register_custom_ops():
-        # These imports will register the custom ops with the ShardTensor class.
-        # It's done here to avoid an import cycle.
-        from .custom_ops import (
-            sharded_mean_wrapper,
-            unbind_rules,
-        )
-        from .shard_utils import register_shard_wrappers
-
-        register_shard_wrappers()
-
-except ImportError:
-    pass

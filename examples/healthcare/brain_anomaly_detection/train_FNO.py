@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -15,9 +15,8 @@
 # limitations under the License.
 
 import physicsnemo
-import physicsnemo.sym
-from physicsnemo.sym.hydra import to_absolute_path
-from physicsnemo.sym.distributed.manager import DistributedManager
+from hydra.utils import to_absolute_path
+from physicsnemo.distributed import DistributedManager
 
 import torch
 import numpy as np
@@ -30,11 +29,10 @@ import hydra
 from omegaconf import DictConfig
 from physicsnemo.models.fno import FNO
 from torch.utils.data import Dataset, DataLoader
-from physicsnemo.launch.logging import PythonLogger, LaunchLogger
+from physicsnemo.utils.logging import PythonLogger, LaunchLogger
 from torch.nn import MSELoss
 from torch.optim import Adam, lr_scheduler
-from physicsnemo.launch.utils import load_checkpoint, save_checkpoint
-import torch.nn.functional as F
+from physicsnemo.utils import load_checkpoint, save_checkpoint
 
 
 class HDF5MapStyleDataset(Dataset):

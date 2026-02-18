@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -15,38 +15,23 @@
 # limitations under the License.
 
 
-import functools
 import json
 import os
 
 import numpy as np
 import torch
-
-try:
-    import tensorflow.compat.v1 as tf
-except ImportError:
-    raise ImportError(
-        "Mesh Graph Net Datapipe requires the Tensorflow library. Install the "
-        + "package at: https://www.tensorflow.org/install"
-    )
-
-try:
-    import dgl
-    from dgl.data import DGLDataset
-except ImportError:
-    raise ImportError(
-        "Mesh Graph Net Datapipe requires the DGL library. Install the "
-        + "desired CUDA version at: https://www.dgl.ai/pages/start.html"
-    )
 from torch.nn import functional as F
+from torch.utils.data import Dataset
 
-from .utils import load_json, save_json
+from physicsnemo.core.version_check import OptionalImport
+from physicsnemo.datapipes.gnn.utils import load_json, save_json
 
-# Hide GPU from visible devices for TF
-tf.config.set_visible_devices([], "GPU")
+# Lazy imports for optional dependencies
+pyg = OptionalImport("torch_geometric")
+tfrecord_torch = OptionalImport("tfrecord.torch.dataset")
 
 
-class VortexSheddingDataset(DGLDataset):
+class VortexSheddingDataset(Dataset):
     """In-memory MeshGraphNet Dataset for stationary mesh
     Notes:
         - This dataset prepares and processes the data available in MeshGraphNet's repo:
@@ -68,10 +53,6 @@ class VortexSheddingDataset(DGLDataset):
         Number of time steps in each sample, by default 600
     noise_std : float, optional
         The standard deviation of the noise added to the "train" split, by default 0.02
-    force_reload : bool, optional
-        force reload, by default False
-    verbose : bool, optional
-        verbose, by default False
     """
 
     def __init__(
@@ -82,14 +63,8 @@ class VortexSheddingDataset(DGLDataset):
         num_samples=1000,
         num_steps=600,
         noise_std=0.02,
-        force_reload=False,
-        verbose=False,
     ):
-        super().__init__(
-            name=name,
-            force_reload=force_reload,
-            verbose=verbose,
-        )
+        self.name = name
         self.data_dir = data_dir
         self.split = split
         self.num_samples = num_samples
@@ -98,14 +73,16 @@ class VortexSheddingDataset(DGLDataset):
         self.length = num_samples * (num_steps - 1)
 
         print(f"Preparing the {split} dataset...")
-        # create the graphs with edge features
-        dataset_iterator = self._load_tf_data(self.data_dir, self.split)
+        # Create the graphs with edge features.
+        tfrecord_dataset = self._load_tfrecord_dataset(self.data_dir, self.split)
         self.graphs, self.cells, self.node_type = [], [], []
         noise_mask, self.rollout_mask = [], []
         self.mesh_pos = []
-        for i in range(self.num_samples):
-            data_np = dataset_iterator.get_next()
-            data_np = {key: arr[:num_steps].numpy() for key, arr in data_np.items()}
+        for i, data_np in enumerate(tfrecord_dataset):
+            if i >= self.num_samples:
+                break
+            # Slice to num_steps for each feature.
+            data_np = {key: arr[:num_steps] for key, arr in data_np.items()}
             src, dst = self.cell_to_adj(data_np["cells"][0])  # assuming stationary mesh
             graph = self.create_graph(src, dst, dtype=torch.int32)
             graph = self.add_edge_features(graph, data_np["mesh_pos"][0])
@@ -127,18 +104,20 @@ class VortexSheddingDataset(DGLDataset):
 
         # normalize edge features
         for i in range(num_samples):
-            self.graphs[i].edata["x"] = self.normalize_edge(
+            self.graphs[i].edge_attr = self.normalize_edge(
                 self.graphs[i],
                 self.edge_stats["edge_mean"],
                 self.edge_stats["edge_std"],
             )
 
-        # create the node features
-        dataset_iterator = self._load_tf_data(self.data_dir, self.split)
+        # Create the node features.
+        tfrecord_dataset = self._load_tfrecord_dataset(self.data_dir, self.split)
         self.node_features, self.node_targets = [], []
-        for i in range(self.num_samples):
-            data_np = dataset_iterator.get_next()
-            data_np = {key: arr[:num_steps].numpy() for key, arr in data_np.items()}
+        for i, data_np in enumerate(tfrecord_dataset):
+            if i >= self.num_samples:
+                break
+            # Slice to num_steps for each feature.
+            data_np = {key: arr[:num_steps] for key, arr in data_np.items()}
             features, targets = {}, {}
             features["velocity"] = self._drop_last(data_np["velocity"])
             targets["velocity"] = self._push_forward_diff(data_np["velocity"])
@@ -193,13 +172,13 @@ class VortexSheddingDataset(DGLDataset):
             ),
             dim=-1,
         )
-        graph.ndata["x"] = node_features
-        graph.ndata["y"] = node_targets
+        graph.x = node_features
+        graph.y = node_targets
         if self.split == "train":
             return graph
         else:
-            graph.ndata["mesh_pos"] = self.mesh_pos[gidx]
-            cells = self.cells[gidx]
+            graph["mesh_pos"] = self.mesh_pos[gidx]
+            cells = torch.tensor(self.cells[gidx])
             rollout_mask = self.rollout_mask[gidx]
             return graph, cells, rollout_mask
 
@@ -213,10 +192,10 @@ class VortexSheddingDataset(DGLDataset):
         }
         for i in range(self.num_samples):
             stats["edge_mean"] += (
-                torch.mean(self.graphs[i].edata["x"], dim=0) / self.num_samples
+                torch.mean(self.graphs[i].edge_attr, dim=0) / self.num_samples
             )
             stats["edge_meansqr"] += (
-                torch.mean(torch.square(self.graphs[i].edata["x"]), dim=0)
+                torch.mean(torch.square(self.graphs[i].edge_attr), dim=0)
                 / self.num_samples
             )
         stats["edge_std"] = torch.sqrt(
@@ -285,23 +264,46 @@ class VortexSheddingDataset(DGLDataset):
         save_json(stats, "node_stats.json")
         return stats
 
-    def _load_tf_data(self, path, split):
-        """
+    def _load_tfrecord_dataset(self, path, split):
+        """Load TFRecord dataset using the tfrecord package.
+
         Utility for loading the .tfrecord dataset in DeepMind's MeshGraphNet repo:
         https://github.com/deepmind/deepmind-research/tree/master/meshgraphnets
         Follow the instructions provided in that repo to download the .tfrecord files.
-        """
-        dataset = self._load_dataset(path, split)
-        dataset_iterator = tf.data.make_one_shot_iterator(dataset)
-        return dataset_iterator
 
-    def _load_dataset(self, path, split):
+        Parameters
+        ----------
+        path : str
+            Path to the directory containing TFRecord files and meta.json.
+        split : str
+            Dataset split name (e.g., "train", "valid", "test").
+
+        Returns
+        -------
+        TFRecordDataset
+            An iterable dataset that yields decoded records.
+        """
         with open(os.path.join(path, "meta.json"), "r") as fp:
             meta = json.loads(fp.read())
-        dataset = tf.data.TFRecordDataset(os.path.join(path, split + ".tfrecord"))
-        return dataset.map(
-            functools.partial(self._parse_data, meta=meta), num_parallel_calls=8
-        ).prefetch(tf.data.AUTOTUNE)
+
+        tfrecord_path = os.path.join(path, split + ".tfrecord")
+        # Check for index file (enables multi-worker DataLoader).
+        index_path = os.path.join(path, split + ".tfindex")
+        if not os.path.exists(index_path):
+            index_path = None
+
+        # Define feature description for tfrecord package.
+        # All features are stored as raw bytes in the TFRecord.
+        description = {k: "byte" for k in meta["field_names"]}
+
+        # Create dataset with transform to decode records.
+        dataset = tfrecord_torch.TFRecordDataset(
+            tfrecord_path,
+            index_path,
+            description,
+            transform=lambda rec: self._decode_record(rec, meta),
+        )
+        return dataset
 
     @staticmethod
     def cell_to_adj(cells):
@@ -314,10 +316,11 @@ class VortexSheddingDataset(DGLDataset):
     @staticmethod
     def create_graph(src, dst, dtype=torch.int32):
         """
-        creates a DGL graph from an adj matrix in COO format.
+        creates a PyG graph from an adj matrix in COO format.
         torch.int32 can handle graphs with up to 2**31-1 nodes or edges.
         """
-        graph = dgl.to_bidirected(dgl.graph((src, dst), idtype=dtype))
+        edges = torch.stack([torch.tensor(src), torch.tensor(dst)], dim=0).long()
+        graph = pyg.data.Data(edge_index=pyg.utils.to_undirected(edges))
         return graph
 
     @staticmethod
@@ -325,10 +328,10 @@ class VortexSheddingDataset(DGLDataset):
         """
         adds relative displacement & displacement norm as edge features
         """
-        row, col = graph.edges()
-        disp = torch.tensor(pos[row.long()] - pos[col.long()])
+        row, col = graph.edge_index
+        disp = torch.tensor(pos[row] - pos[col])
         disp_norm = torch.linalg.norm(disp, dim=-1, keepdim=True)
-        graph.edata["x"] = torch.cat((disp, disp_norm), dim=1)
+        graph.edge_attr = torch.cat((disp, disp_norm), dim=1)
         return graph
 
     @staticmethod
@@ -342,11 +345,11 @@ class VortexSheddingDataset(DGLDataset):
     def normalize_edge(graph, mu, std):
         """normalizes a tensor"""
         if (
-            graph.edata["x"].size()[-1] != mu.size()[-1]
-            or graph.edata["x"].size()[-1] != std.size()[-1]
+            graph.edge_attr.size()[-1] != mu.size()[-1]
+            or graph.edge_attr.size()[-1] != std.size()[-1]
         ):
             raise AssertionError("Graph edge data must be same size as stats.")
-        return (graph.edata["x"] - mu) / std
+        return (graph.edge_attr - mu) / std
 
     @staticmethod
     def denormalize(invar, mu, std):
@@ -398,21 +401,49 @@ class VortexSheddingDataset(DGLDataset):
         return features, targets
 
     @staticmethod
-    def _parse_data(p, meta):
+    def _decode_record(rec_bytes: dict, meta: dict) -> dict:
+        """Decode raw bytes from TFRecord into numpy arrays.
+
+        The tfrecord package parses the TFRecord and
+        provides raw bytes for each feature, which are decoded using numpy.
+
+        Parameters
+        ----------
+        rec_bytes : dict
+            Dictionary mapping feature names to raw bytes from tfrecord package.
+        meta : dict
+            Metadata dictionary containing feature specifications (dtype, shape, type).
+
+        Returns
+        -------
+        dict
+            Dictionary mapping feature names to decoded numpy arrays.
+        """
         outvar = {}
-        feature_dict = {k: tf.io.VarLenFeature(tf.string) for k in meta["field_names"]}
-        features = tf.io.parse_single_example(p, feature_dict)
         for k, v in meta["features"].items():
-            data = tf.reshape(
-                tf.io.decode_raw(features[k].values, getattr(tf, v["dtype"])),
-                v["shape"],
-            )
+            # Map TensorFlow dtype names to numpy dtypes.
+            dtype_map = {
+                "float32": np.float32,
+                "float64": np.float64,
+                "int32": np.int32,
+                "int64": np.int64,
+            }
+            dtype = dtype_map.get(v["dtype"], getattr(np, v["dtype"]))
+
+            # Decode raw bytes to numpy array.
+            # Use .copy() to make array writable (np.frombuffer returns read-only view).
+            data = np.frombuffer(rec_bytes[k], dtype=dtype).copy()
+            data = data.reshape(v["shape"])
+
             if v["type"] == "static":
-                data = tf.tile(data, [meta["trajectory_length"], 1, 1])
+                # Tile static features across trajectory length.
+                # np.tile creates a new writable array.
+                data = np.tile(data, (meta["trajectory_length"], 1, 1))
             elif v["type"] == "dynamic_varlen":
-                row_len = tf.reshape(
-                    tf.io.decode_raw(features["length_" + k].values, tf.int32), [-1]
-                )
-                data = tf.RaggedTensor.from_row_lengths(data, row_lengths=row_len)
+                # Handle variable-length sequences using row lengths.
+                row_len = np.frombuffer(rec_bytes["length_" + k], dtype=np.int32)
+                # Convert to list of variable-length arrays (ragged).
+                data = np.split(data, np.cumsum(row_len)[:-1])
+
             outvar[k] = data
         return outvar

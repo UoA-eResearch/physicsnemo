@@ -49,6 +49,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.testmon*
 cover/
 
 # Translations
@@ -70,6 +71,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/examples/
 
 # PyBuilder
 .pybuilder/
@@ -153,6 +155,7 @@ cython_debug/
 
 # VsCode
 .vscode/
+.cursor/
 
 # VIM
 *.swp
@@ -171,8 +174,13 @@ multirun/
 
 # SLURM
 slurm-*.out
+sbatch_logs/
+
+# ASV
+.asv/
 
 # custom
 hcast_nc
 NZ_GEFS
 Joao
+WHACS

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -28,9 +28,9 @@ from physicsnemo.datapipes.climate import ERA5HDF5Datapipe
 from physicsnemo.distributed import DistributedManager
 from physicsnemo.utils import StaticCaptureTraining, StaticCaptureEvaluateNoGrad
 
-from physicsnemo.launch.logging import LaunchLogger, PythonLogger
-from physicsnemo.launch.logging.mlflow import initialize_mlflow
-from physicsnemo.launch.utils import load_checkpoint, save_checkpoint
+from physicsnemo.utils.logging import LaunchLogger, PythonLogger
+from physicsnemo.utils.logging.mlflow import initialize_mlflow
+from physicsnemo.utils import load_checkpoint, save_checkpoint
 
 try:
     from apex import optimizers
@@ -51,7 +51,15 @@ def loss_func(x, y, p=2.0):
 
 
 @torch.no_grad()
-def validation_step(eval_step, fcn_model, datapipe, channels=[0, 1], epoch=0):
+def validation_step(
+    eval_step,
+    fcn_model,
+    datapipe,
+    channels=[
+        0,
+    ],
+    epoch=0,
+):
     loss_epoch = 0
     num_examples = 0  # Number of validation examples
     # Dealing with DDP wrapper

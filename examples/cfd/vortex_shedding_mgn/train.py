@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -21,21 +21,22 @@ from hydra.utils import to_absolute_path
 import torch
 import wandb
 
-from dgl.dataloading import GraphDataLoader
-
 from omegaconf import DictConfig
 
-from torch.cuda.amp import GradScaler, autocast
+from torch_geometric.loader import DataLoader as PyGDataLoader
+
+from torch.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel
+from torch.utils.data.distributed import DistributedSampler
 
 from physicsnemo.datapipes.gnn.vortex_shedding_dataset import VortexSheddingDataset
 from physicsnemo.distributed.manager import DistributedManager
-from physicsnemo.launch.logging import (
+from physicsnemo.utils.logging import (
     PythonLogger,
     RankZeroLoggingWrapper,
 )
-from physicsnemo.launch.logging.wandb import initialize_wandb
-from physicsnemo.launch.utils import load_checkpoint, save_checkpoint
+from physicsnemo.utils.logging.wandb import initialize_wandb
+from physicsnemo.utils import load_checkpoint, save_checkpoint
 from physicsnemo.models.meshgraphnet import MeshGraphNet
 
 
@@ -62,14 +63,20 @@ class MGNTrainer:
             num_steps=cfg.num_training_time_steps,
         )
 
-        # instantiate dataloader
-        self.dataloader = GraphDataLoader(
+        sampler = DistributedSampler(
             dataset,
-            batch_size=cfg.batch_size,
             shuffle=True,
             drop_last=True,
+            num_replicas=self.dist.world_size,
+            rank=self.dist.rank,
+        )
+
+        # instantiate dataloader
+        self.dataloader = PyGDataLoader(
+            dataset,
+            batch_size=cfg.batch_size,
+            sampler=sampler,
             pin_memory=True,
-            use_ddp=self.dist.world_size > 1,
             num_workers=cfg.num_dataloader_workers,
         )
 
@@ -85,8 +92,10 @@ class MGNTrainer:
         )
         if cfg.jit:
             if not self.model.meta.jit:
-                raise ValueError("MeshGraphNet is not yet JIT-compatible.")
-            self.model = torch.jit.script(self.model).to(self.dist.device)
+                raise ValueError(
+                    "MeshGraphNet is not yet compatible with torch.compile."
+                )
+            self.model = torch.compile(self.model).to(self.dist.device)
         else:
             self.model = self.model.to(self.dist.device)
         if cfg.watch_model and not cfg.jit and self.dist.rank == 0:
@@ -150,9 +159,9 @@ class MGNTrainer:
 
     def forward(self, graph):
         # forward pass
-        with autocast(enabled=self.amp):
-            pred = self.model(graph.ndata["x"], graph.edata["x"], graph)
-            loss = self.criterion(pred, graph.ndata["y"])
+        with autocast(device_type=self.dist.device.type, enabled=self.amp):
+            pred = self.model(graph.x, graph.edge_attr, graph)
+            loss = self.criterion(pred, graph.y)
             return loss
 
     def backward(self, loss):
@@ -188,12 +197,19 @@ def main(cfg: DictConfig) -> None:
     start = time.time()
     rank_zero_logger.info("Training started...")
     for epoch in range(trainer.epoch_init, cfg.epochs):
+        trainer.dataloader.sampler.set_epoch(epoch)
+
+        epoch_loss = 0.0
+
         for graph in trainer.dataloader:
             loss = trainer.train(graph)
+            epoch_loss += loss.detach().cpu()
+
+        epoch_loss /= len(trainer.dataloader)
         rank_zero_logger.info(
-            f"epoch: {epoch}, loss: {loss:10.3e}, time per epoch: {(time.time()-start):10.3e}"
+            f"epoch: {epoch}, loss: {epoch_loss:10.3e}, time per epoch: {(time.time() - start):10.3e}"
         )
-        wandb.log({"loss": loss.detach().cpu()})
+        wandb.log({"loss": epoch_loss})
 
         # save checkpoint
         if dist.world_size > 1:

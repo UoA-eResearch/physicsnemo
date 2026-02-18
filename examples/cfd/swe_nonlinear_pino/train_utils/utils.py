@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -18,7 +18,7 @@ import yaml
 import torch
 import os
 import numpy as np
-from physicsnemo.sym.hydra import to_absolute_path
+from hydra.utils import to_absolute_path
 
 
 def load_config(file):

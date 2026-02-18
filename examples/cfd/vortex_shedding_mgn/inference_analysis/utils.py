@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-FileCopyrightText: All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
@@ -17,7 +17,7 @@
 import numpy as np
 import pyvista as pv
 from scipy.interpolate import griddata
-from typing import List, Dict, Tuple
+from typing import List, Dict
 
 
 def midpoint_data_interp(

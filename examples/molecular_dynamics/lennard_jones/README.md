@@ -15,7 +15,7 @@ Lennard Jones system (liquid Argon) given the positions of its atoms.
 The model is trained on data generated using OpenMM MD simulator. The dataset consists
 of 10000 samples of the 258 atom system. For original dataset please refer
 the [original publication](https://arxiv.org/abs/2112.03383) and
-[Git repo](https://github.com/BaratiLab/GAMD) of the origial work.
+[Git repo](https://github.com/BaratiLab/GAMD) of the original work.
 
 ## Model overview and architecture
 
@@ -25,12 +25,19 @@ The graph edges are generated based on nearest-neighbor search.
 
 ![Results from PhysicsNeMo training for the LJ system.](../../../docs/img/lj_system_physicsnemo_results.png)
 
+## Prerequisites
+
+Install the requirements using:
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Getting Started
 
 To download the data, run
 
 ```bash
-pip install gdown
 python download_data.py
 ```
 
