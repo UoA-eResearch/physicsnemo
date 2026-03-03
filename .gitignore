@@ -187,3 +187,6 @@ hcast_nc
 NZ_GEFS
 Joao
 WHACS
+GEFS
+examples/weather/corrdiff/tensorboard/
+examples/weather/corrdiff/wandb/

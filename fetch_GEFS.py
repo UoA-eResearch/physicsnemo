@@ -20,7 +20,7 @@ def download_GEFS(date):
         print(f"Failed to download data for {date}")
         return None
 
-for year in range(2021, 2025):
+for year in range(2020, 2021):
     dsets = thread_map(
         download_GEFS,
         pd.date_range(f"{year}-01-01", f"{year}-12-31", freq="D"),
