@@ -25,19 +25,46 @@ hydra:
 
 # Base parameters for dataset, model, training
 defaults:
-    - _self_
     - dataset: gefs_WHACS
     - model: regression
     - model_size: mini
     - training: ${model}
+    - _self_  # Must be last to override inherited configs
 
 # Training parameters
 training:
     hp:
         training_duration: 4000000
         # Training duration for regression (half of diffusion duration)
+        total_batch_size: 32
+        # Batch size to balance memory usage and training speed
+        batch_size_per_gpu: 32
+        # Explicitly set per-GPU batch size
+    perf:
+        dataloader_workers: 2
+        # Reduced workers to save memory
+        songunet_checkpoint_level: 2
+        # Enable gradient checkpointing to reduce memory usage
     io:
         print_progress_freq: 5000
+        validation_freq: 1000
+        # Compute validation loss every 1000 samples (instead of 5000) for faster feedback
+        validation_steps: 5
+        # Reduced validation steps to speed up validation checks
+
+# Validation dataset configuration
+validation:
+    gefs_dir: ../../../NZ_GEFS
+    whacs_dir: ../../../WHACS
+    stats_path: ../../../GEFS_WHACS_stats.json
+    input_variables: ["swh", "dirpw", "perpw"]
+    output_variables: ["hs", "dir", "t01"]
+    target_resolution: 0.0625
+    train: false
+    # Explicitly use valid_years (2021, 2022, 2023) instead of train_years
+    train_years: []
+    # Empty to force use of valid_years
+    valid_years: [2021, 2022, 2023]
 
 # Parameters for wandb logging
 wandb:

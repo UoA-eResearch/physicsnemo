@@ -462,6 +462,11 @@ class NZMiniDataset(DownscalingDataset):
         whacs_idx = self.whacs_indices[idx]
         y = self._load_whacs_sample(whacs_idx)
         
+        # Replace NaN values with zeros to prevent loss becoming NaN
+        # NaN values occur over land areas and invalid regions
+        x = np.nan_to_num(x, nan=0.0)
+        y = np.nan_to_num(y, nan=0.0)
+        
         # Normalize
         x = self.normalize_input(x)
         y = self.normalize_output(y)

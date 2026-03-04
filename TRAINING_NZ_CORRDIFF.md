@@ -50,7 +50,7 @@ valid_years: [2021, 2022, 2023]
 cd examples/weather/corrdiff
 
 # Train the model
-python train.py --config-name=config_train_gefs_WHACS.yaml
+python train.py --config-name=config_train_gefs_WHACS_regression
 ```
 
 The dataset will:
@@ -119,7 +119,7 @@ target_resolution: 0.125  # Coarser grid (faster, less memory)
 | First sample fetch | ~5s | On-the-fly griddata interpolation |
 | Subsequent samples | 0.1-0.5s | Disk I/O bound |
 | Memory per sample | ~60-80 MB | Single (5, 244, 240) + (3, 244, 240) |
-| Batch size recommendation | 4-8 | Depends on GPU memory |
+| Batch size (configured) | 32 | Set in config to prevent OOM |
 | First epoch | Slower | Disk caching effects |
 | Subsequent epochs | Faster | Operating system caching |
 
@@ -148,7 +148,8 @@ target_resolution: 0.125  # Coarser grid (faster, less memory)
 **Memory Usage**
 - Each sample loads one timestep from disk on-demand (lazy loading)
 - WHACS irregular → regular interpolation allocates temporary arrays during fetch
-- Reduce `batch_size` if OOM occurs; single sample ≈ 60-80 MB
+- Default batch size: 32 (configured to prevent OOM on 80GB GPU)
+- Reduce further (e.g., 16) if OOM still occurs; single sample ≈ 60-80 MB
 - Use `target_resolution: 0.125` for 4× coarser grid (16× faster memory)
 
 **Multi-GPU Training**
@@ -178,8 +179,8 @@ If certain years/months are missing, the dataset will:
 - **Expected**: ~10-13% of GEFS input contains NaN (land areas, invalid regions)
 - **Not a bug**: Original GEFS data has these NaN values over land
 - **WHACS output**: Should be mostly NaN-free (ocean data)
-- **Training**: Model learns to handle NaN naturally, or use loss masking
-- If needed, you can fill NaN values: `x = np.nan_to_num(x, nan=0.0)` in `__getitem__`
+- **Handling**: NaN values are automatically replaced with zeros in the dataset's `__getitem__` method before normalization
+- This prevents NaN from propagating through the network and causing training loss to become NaN
 
 ### Slow First Epoch
 - First access to NetCDF files may be slow (disk caching)
