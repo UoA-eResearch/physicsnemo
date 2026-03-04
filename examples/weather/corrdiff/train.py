@@ -28,6 +28,7 @@ from torch.nn.parallel import DistributedDataParallel
 from torch.utils.tensorboard import SummaryWriter
 import nvtx
 import wandb
+import numpy as np
 
 from physicsnemo import Module
 from physicsnemo.models.diffusion_unets import CorrDiffRegressionUNet
@@ -513,6 +514,7 @@ def main(cfg: DictConfig) -> None:
     average_loss_running_mean = 0
     n_average_loss_running_mean = 1
     start_nimg = cur_nimg
+    latest_r2_scores = None  # Store latest R² scores for logging
     input_dtype = torch.float32
     if enable_amp:
         input_dtype = torch.float32
@@ -678,6 +680,9 @@ def main(cfg: DictConfig) -> None:
                     # Validation
                     if validation_dataset_iterator is not None:
                         valid_loss_accum = 0
+                        # For R² computation: accumulate all predictions and targets
+                        all_predictions = []
+                        all_targets = []
                         if is_time_for_periodic_task(
                             cur_nimg,
                             cfg.training.io.validation_freq,
@@ -760,6 +765,42 @@ def main(cfg: DictConfig) -> None:
                                             / cfg.training.io.validation_steps
                                             / len(patch_nums_iter)
                                         )
+                                        
+                                        # Collect predictions and targets for R² computation
+                                        if cfg.model.name in [
+                                            "regression",
+                                            "lt_aware_regression",
+                                            "lt_aware_ce_regression",
+                                        ]:
+                                            # Create zero input tensor (matching output shape)
+                                            zero_input = torch.zeros_like(
+                                                img_clean_valid, device=img_clean_valid.device
+                                            )
+                                            
+                                            with torch.autocast(
+                                                "cuda", dtype=amp_dtype, enabled=enable_amp
+                                            ):
+                                                # Call model with same signature as RegressionLoss
+                                                if lead_time_label_valid:
+                                                    predictions = model(
+                                                        zero_input,
+                                                        img_lr_valid,
+                                                        force_fp32=False,
+                                                        lead_time_label=lead_time_label_valid,
+                                                        augment_labels=augment_labels if 'augment_labels' in locals() else None,
+                                                    )
+                                                else:
+                                                    predictions = model(
+                                                        zero_input,
+                                                        img_lr_valid,
+                                                        force_fp32=False,
+                                                        augment_labels=augment_labels if 'augment_labels' in locals() else None,
+                                                    )
+                                            
+                                            # Store predictions and targets for R² computation
+                                            all_predictions.append(predictions.detach())
+                                            all_targets.append(img_clean_valid.detach())
+                                    
                                 valid_loss_sum = torch.tensor(
                                     [valid_loss_accum], device=dist.device
                                 )
@@ -774,6 +815,53 @@ def main(cfg: DictConfig) -> None:
                                     writer.add_scalar(
                                         "validation_loss", average_valid_loss, cur_nimg
                                     )
+                                    
+                                    # Compute and log R² scores for regression models
+                                    if cfg.model.name in [
+                                        "regression",
+                                        "lt_aware_regression",
+                                        "lt_aware_ce_regression",
+                                    ] and len(all_predictions) > 0:
+                                        # Concatenate all predictions and targets
+                                        all_preds_tensor = torch.cat(all_predictions, dim=0)
+                                        all_targets_tensor = torch.cat(all_targets, dim=0)
+                                        
+                                        # Compute R² for each variable
+                                        output_vars = dataset.output_channels()
+                                        r2_scores = []
+                                        
+                                        for var_idx in range(img_out_channels):
+                                            pred_var = all_preds_tensor[:, var_idx].reshape(-1).cpu().numpy()
+                                            target_var = all_targets_tensor[:, var_idx].reshape(-1).cpu().numpy()
+                                            
+                                            # Compute R² = 1 - (SS_res / SS_tot)
+                                            ss_res = np.sum((target_var - pred_var) ** 2)
+                                            ss_tot = np.sum((target_var - np.mean(target_var)) ** 2)
+                                            
+                                            if ss_tot > 0:
+                                                r2 = 1.0 - (ss_res / ss_tot)
+                                            else:
+                                                r2 = 0.0
+                                            
+                                            r2_scores.append(r2)
+                                            
+                                            # Log per-variable R²
+                                            var_name = output_vars[var_idx] if var_idx < len(output_vars) else f"var_{var_idx}"
+                                            writer.add_scalar(
+                                                f"validation_r2/{var_name}",
+                                                r2,
+                                                cur_nimg,
+                                            )
+                                        
+                                        # Log mean R² across all variables
+                                        writer.add_scalar(
+                                            "validation_r2/mean",
+                                            np.mean(r2_scores),
+                                            cur_nimg,
+                                        )
+                                        
+                                        # Store R² scores for periodic logging
+                                        latest_r2_scores = r2_scores
 
                 if is_time_for_periodic_task(
                     cur_nimg,
@@ -810,6 +898,17 @@ def main(cfg: DictConfig) -> None:
                             f"peak_gpu_mem_reserved_gb {(torch.cuda.max_memory_reserved(dist.device) / 2**30):<6.2f}"
                         ]
                         torch.cuda.reset_peak_memory_stats()
+                    # Add R² metrics if available
+                    if latest_r2_scores is not None and cfg.model.name in [
+                        "regression",
+                        "lt_aware_regression",
+                        "lt_aware_ce_regression",
+                    ]:
+                        fields += [f"mean_r2 {np.mean(latest_r2_scores):<7.4f}"]
+                        output_vars = dataset.output_channels()
+                        for var_idx, r2_val in enumerate(latest_r2_scores):
+                            var_name = output_vars[var_idx] if var_idx < len(output_vars) else f"var_{var_idx}"
+                            fields += [f"r2_{var_name} {r2_val:<7.4f}"]
                     logger0.info(" ".join(fields))
 
                 # Save checkpoints
