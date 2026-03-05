@@ -514,7 +514,7 @@ def main(cfg: DictConfig) -> None:
     average_loss_running_mean = 0
     n_average_loss_running_mean = 1
     start_nimg = cur_nimg
-    latest_r2_scores = None  # Store latest R² scores for logging
+    latest_metrics = None  # Store latest validation metrics for logging
     input_dtype = torch.float32
     if enable_amp:
         input_dtype = torch.float32
@@ -787,14 +787,14 @@ def main(cfg: DictConfig) -> None:
                                                         img_lr_valid,
                                                         force_fp32=False,
                                                         lead_time_label=lead_time_label_valid,
-                                                        augment_labels=augment_labels if 'augment_labels' in locals() else None,
+                                                        augment_labels=None,
                                                     )
                                                 else:
                                                     predictions = model(
                                                         zero_input,
                                                         img_lr_valid,
                                                         force_fp32=False,
-                                                        augment_labels=augment_labels if 'augment_labels' in locals() else None,
+                                                        augment_labels=None,
                                                     )
                                             
                                             # Store predictions and targets for R² computation
@@ -826,42 +826,62 @@ def main(cfg: DictConfig) -> None:
                                         all_preds_tensor = torch.cat(all_predictions, dim=0)
                                         all_targets_tensor = torch.cat(all_targets, dim=0)
                                         
-                                        # Compute R² for each variable
+                                        # Compute metrics for each variable
                                         output_vars = dataset.output_channels()
-                                        r2_scores = []
+                                        metric_values = {
+                                            "r2": [],
+                                            "mae": [],
+                                            "mse": [],
+                                            "rmse": [],
+                                            "bias": [],
+                                            "corr": [],
+                                        }
                                         
                                         for var_idx in range(img_out_channels):
                                             pred_var = all_preds_tensor[:, var_idx].reshape(-1).cpu().numpy()
                                             target_var = all_targets_tensor[:, var_idx].reshape(-1).cpu().numpy()
+                                            error_var = pred_var - target_var
                                             
                                             # Compute R² = 1 - (SS_res / SS_tot)
                                             ss_res = np.sum((target_var - pred_var) ** 2)
                                             ss_tot = np.sum((target_var - np.mean(target_var)) ** 2)
                                             
-                                            if ss_tot > 0:
-                                                r2 = 1.0 - (ss_res / ss_tot)
-                                            else:
-                                                r2 = 0.0
+                                            metric_values["r2"].append(
+                                                1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+                                            )
+                                            metric_values["mae"].append(np.mean(np.abs(error_var)))
+                                            metric_values["mse"].append(np.mean(error_var**2))
+                                            metric_values["rmse"].append(np.sqrt(metric_values["mse"][-1]))
+                                            metric_values["bias"].append(np.mean(error_var))
+
+                                            # Pearson correlation (safe against zero-variance input)
+                                            pred_std = np.std(pred_var)
+                                            target_std = np.std(target_var)
+                                            metric_values["corr"].append(
+                                                np.corrcoef(pred_var, target_var)[0, 1]
+                                                if pred_std > 0 and target_std > 0
+                                                else 0.0
+                                            )
                                             
-                                            r2_scores.append(r2)
-                                            
-                                            # Log per-variable R²
+                                            # Log per-variable metrics
                                             var_name = output_vars[var_idx] if var_idx < len(output_vars) else f"var_{var_idx}"
+                                            for metric_name, values in metric_values.items():
+                                                writer.add_scalar(
+                                                    f"validation_{metric_name}/{var_name}",
+                                                    values[var_idx],
+                                                    cur_nimg,
+                                                )
+                                        
+                                        # Log mean metrics across all variables
+                                        for metric_name, values in metric_values.items():
                                             writer.add_scalar(
-                                                f"validation_r2/{var_name}",
-                                                r2,
+                                                f"validation_{metric_name}/mean",
+                                                np.mean(values),
                                                 cur_nimg,
                                             )
                                         
-                                        # Log mean R² across all variables
-                                        writer.add_scalar(
-                                            "validation_r2/mean",
-                                            np.mean(r2_scores),
-                                            cur_nimg,
-                                        )
-                                        
-                                        # Store R² scores for periodic logging
-                                        latest_r2_scores = r2_scores
+                                        # Store metrics for periodic logging
+                                        latest_metrics = metric_values
 
                 if is_time_for_periodic_task(
                     cur_nimg,
@@ -899,16 +919,18 @@ def main(cfg: DictConfig) -> None:
                         ]
                         torch.cuda.reset_peak_memory_stats()
                     # Add R² metrics if available
-                    if latest_r2_scores is not None and cfg.model.name in [
+                    if latest_metrics is not None and cfg.model.name in [
                         "regression",
                         "lt_aware_regression",
                         "lt_aware_ce_regression",
                     ]:
-                        fields += [f"mean_r2 {np.mean(latest_r2_scores):<7.4f}"]
+                        for metric_name, values in latest_metrics.items():
+                            fields += [f"mean_{metric_name} {np.mean(values):<7.4f}"]
                         output_vars = dataset.output_channels()
-                        for var_idx, r2_val in enumerate(latest_r2_scores):
+                        for var_idx in range(len(latest_metrics["r2"])):
                             var_name = output_vars[var_idx] if var_idx < len(output_vars) else f"var_{var_idx}"
-                            fields += [f"r2_{var_name} {r2_val:<7.4f}"]
+                            for metric_name, values in latest_metrics.items():
+                                fields += [f"{metric_name}_{var_name} {values[var_idx]:<7.4f}"]
                     logger0.info(" ".join(fields))
 
                 # Save checkpoints
