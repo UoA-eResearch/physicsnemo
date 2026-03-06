@@ -25,11 +25,11 @@ hydra:
 
 # Base parameters for dataset, model, training
 defaults:
-    - _self_
     - dataset: gefs_WHACS
     - model: diffusion
     - model_size: mini
     - training: ${model}
+    - _self_
 
 # Training parameters
 training:
@@ -38,7 +38,7 @@ training:
         # Training duration based on the number of processed samples
     io:
         print_progress_freq: 10000
-        regression_checkpoint_path: ./output/nz_gefs_whacs_regression/checkpoints/regression_checkpoint.mdlus
+        regression_checkpoint_path: ./checkpoints_regression/CorrDiffRegressionUNet.0.850048.mdlus
         # Path to load the regression checkpoint (train regression model first!)
 
 # Parameters for wandb logging
