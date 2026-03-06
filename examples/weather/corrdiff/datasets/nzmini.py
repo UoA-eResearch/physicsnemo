@@ -27,6 +27,17 @@ import xarray as xr
 from numba import jit, prange
 from scipy.interpolate import griddata
 
+try:
+    import geopandas as gpd
+    from shapely.geometry import Point, box
+    from geocube.api.core import make_geocube
+    HAS_GEO = True
+except ImportError as e:
+    HAS_GEO = False
+    GEO_ERROR = str(e)
+else:
+    GEO_ERROR = None
+
 from datasets.base import ChannelMetadata, DownscalingDataset
 from helpers.train_helpers import _convert_datetime_to_cftime
 
@@ -272,7 +283,82 @@ class NZMiniDataset(DownscalingDataset):
         self.grid_x, self.grid_y = np.meshgrid(self.grid_lon, self.grid_lat)
         self.img_shape = self.grid_y.shape
         
+        # Create land mask for ocean-only predictions
+        self._create_land_mask()
+        
         print(f"  Target grid: {self.img_shape[0]} x {self.img_shape[1]}")
+
+    def _create_land_mask(self) -> None:
+        """Create a mask for land areas using NZ coastline shapefile with geocube.
+        
+        Sets self.ocean_mask: True where ocean, False where land
+        
+        Uses geocube to rasterize the shapefile, which handles coordinate systems
+        properly and provides accurate land/ocean boundaries.
+        """
+        if not HAS_GEO:
+            print("  Info: geopandas/geocube not available, using no land mask")
+            print(f"        Install with: pip install geopandas geocube")
+            self.ocean_mask = np.ones(self.img_shape, dtype=bool)
+            return
+        
+        # Shapefile is at /mnt/physicsnemo/ (5 levels up from datasets/nzmini.py)
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+        shapefile_path = os.path.join(
+            base_dir,
+            "lds-nz-coastlines-and-islands-polygons-topo-150k-SHP.zip"
+        )
+        
+        if not os.path.exists(shapefile_path):
+            print(f"  Info: Coastline shapefile not found, using no land mask")
+            self.ocean_mask = np.ones(self.img_shape, dtype=bool)
+            return
+        
+        try:
+            # Load the shapefile and ensure correct CRS
+            gdf = gpd.read_file(f"zip://{shapefile_path}").to_crs("EPSG:4326")
+            
+            # Create binary column for rasterization
+            gdf["land"] = 1
+            
+            # Define bounds for rasterization
+            lon_min, lon_max = float(self.grid_lon.min()), float(self.grid_lon.max())
+            lat_min, lat_max = float(self.grid_lat.min()), float(self.grid_lat.max())
+            bounds = box(lon_min, lat_min, lon_max, lat_max)
+            
+            # Rasterize using geocube
+            out_grid = make_geocube(
+                vector_data=gdf,
+                geom=bounds,
+                measurements=["land"],
+                resolution=(self.target_resolution, self.target_resolution)
+            )
+            
+            # Extract the land mask and crop to our actual grid shape
+            land_raster = out_grid["land"].values
+            
+            # Crop/pad to match our exact img_shape if needed
+            if land_raster.shape != self.img_shape:
+                # Crop or pad to match
+                h, w = self.img_shape
+                rh, rw = land_raster.shape
+                land_raster_fitted = np.zeros(self.img_shape, dtype=land_raster.dtype)
+                land_raster_fitted[:min(h, rh), :min(w, rw)] = land_raster[:min(h, rh), :min(w, rw)]
+                land_raster = land_raster_fitted
+            
+            # Ocean mask = True where not land (NaN or 0 means ocean)
+            self.ocean_mask = np.isnan(land_raster) | (land_raster == 0)
+            
+            ocean_count = self.ocean_mask.sum()
+            total_count = self.ocean_mask.size
+            land_pct = 100.0 * (1.0 - ocean_count / total_count)
+            print(f"  Land mask: {ocean_count}/{total_count} ocean points ({land_pct:.1f}% land)")
+            print(f"             Using geocube-rasterized coastline shapefile")
+            
+        except Exception as e:
+            print(f"  Warning: Geocube masking failed ({type(e).__name__}: {e})")
+            print(f"           Using no land mask")
+            self.ocean_mask = np.ones(self.img_shape, dtype=bool)
 
     def _build_time_index_and_match(self, time_tolerance_hours: int = 1) -> None:
         """Build time index from file metadata and match GEFS/WHACS timestamps.
@@ -429,14 +515,29 @@ class NZMiniDataset(DownscalingDataset):
             # Flatten values to 1D
             values_flat = values.ravel()
             
-            # Interpolate to regular grid using nearest neighbor
-            points = np.column_stack((self.whacs_lon, self.whacs_lat))
-            grid_z = griddata(
-                points=points,
-                values=values_flat,
-                xi=(self.grid_x, self.grid_y),
-                method='nearest'
-            )
+            # Initialize output array with NaN (prevents griddata from interpolating into land)
+            grid_z = np.full(self.img_shape, np.nan, dtype=np.float32)
+            
+            # Only interpolate to ocean grid points to avoid extrapolating into land
+            # Extract ocean grid coordinates and flatten them
+            ocean_lon = self.grid_x[self.ocean_mask].ravel()
+            ocean_lat = self.grid_y[self.ocean_mask].ravel()
+            ocean_points = np.column_stack((ocean_lon, ocean_lat))
+            
+            # Interpolate only to ocean points
+            if len(ocean_points) > 0:
+                points = np.column_stack((self.whacs_lon, self.whacs_lat))
+                ocean_values = griddata(
+                    points=points,
+                    values=values_flat,
+                    xi=ocean_points,
+                    method='nearest'
+                )
+                
+                # Place interpolated values into ocean grid locations
+                ocean_indices = np.where(self.ocean_mask)
+                grid_z[ocean_indices] = ocean_values
+            
             output_data.append(grid_z)
         
         return np.stack(output_data, axis=0).astype(np.float32)

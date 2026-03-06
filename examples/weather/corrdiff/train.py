@@ -17,6 +17,7 @@
 import os
 import time
 from contextlib import nullcontext
+import json
 
 import psutil
 import hydra
@@ -826,13 +827,33 @@ def main(cfg: DictConfig) -> None:
                                         all_preds_tensor = torch.cat(all_predictions, dim=0)
                                         all_targets_tensor = torch.cat(all_targets, dim=0)
                                         
+                                        # Load target statistics for normalized metrics from config
+                                        stats_path = dataset_cfg.get("stats_path")
+                                        if stats_path:
+                                            stats_path = to_absolute_path(stats_path)
+                                            try:
+                                                with open(stats_path) as f:
+                                                    stats = json.load(f)
+                                                    target_stds = {
+                                                        var: stats["output"][var]["std"]
+                                                        for var in stats["output"].keys()
+                                                    }
+                                            except:
+                                                target_stds = {}
+                                        else:
+                                            target_stds = {}
+                                        
                                         # Compute metrics for each variable
                                         output_vars = dataset.output_channels()
+                                        var_names = [
+                                            v.name if hasattr(v, "name") else str(v) for v in output_vars
+                                        ]
                                         metric_values = {
                                             "r2": [],
                                             "mae": [],
                                             "mse": [],
                                             "rmse": [],
+                                            "nrmse": [],
                                             "bias": [],
                                             "corr": [],
                                         }
@@ -850,21 +871,28 @@ def main(cfg: DictConfig) -> None:
                                                 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
                                             )
                                             metric_values["mae"].append(np.mean(np.abs(error_var)))
-                                            metric_values["mse"].append(np.mean(error_var**2))
-                                            metric_values["rmse"].append(np.sqrt(metric_values["mse"][-1]))
+                                            mse_val = np.mean(error_var**2)
+                                            metric_values["mse"].append(mse_val)
+                                            rmse_val = np.sqrt(mse_val)
+                                            metric_values["rmse"].append(rmse_val)
+                                            
+                                            # Normalized RMSE (by target std)
+                                            var_name = var_names[var_idx]
+                                            target_std = target_stds.get(var_name, 1.0)
+                                            metric_values["nrmse"].append(rmse_val / target_std if target_std > 0 else 0.0)
+                                            
                                             metric_values["bias"].append(np.mean(error_var))
 
                                             # Pearson correlation (safe against zero-variance input)
                                             pred_std = np.std(pred_var)
-                                            target_std = np.std(target_var)
+                                            target_std_check = np.std(target_var)
                                             metric_values["corr"].append(
                                                 np.corrcoef(pred_var, target_var)[0, 1]
-                                                if pred_std > 0 and target_std > 0
+                                                if pred_std > 0 and target_std_check > 0
                                                 else 0.0
                                             )
                                             
                                             # Log per-variable metrics
-                                            var_name = output_vars[var_idx] if var_idx < len(output_vars) else f"var_{var_idx}"
                                             for metric_name, values in metric_values.items():
                                                 writer.add_scalar(
                                                     f"validation_{metric_name}/{var_name}",
@@ -927,8 +955,11 @@ def main(cfg: DictConfig) -> None:
                         for metric_name, values in latest_metrics.items():
                             fields += [f"mean_{metric_name} {np.mean(values):<7.4f}"]
                         output_vars = dataset.output_channels()
+                        var_names_log = [
+                            v.name if hasattr(v, "name") else str(v) for v in output_vars
+                        ]
                         for var_idx in range(len(latest_metrics["r2"])):
-                            var_name = output_vars[var_idx] if var_idx < len(output_vars) else f"var_{var_idx}"
+                            var_name = var_names_log[var_idx]
                             for metric_name, values in latest_metrics.items():
                                 fields += [f"{metric_name}_{var_name} {values[var_idx]:<7.4f}"]
                     logger0.info(" ".join(fields))
