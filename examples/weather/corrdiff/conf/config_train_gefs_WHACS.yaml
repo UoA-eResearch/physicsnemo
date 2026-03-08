@@ -36,10 +36,33 @@ training:
     hp:
         training_duration: 8000000
         # Training duration based on the number of processed samples
+        total_batch_size: 64
+        # Reduced batch size for memory efficiency with diffusion
+        batch_size_per_gpu: 64
+        # Set per-GPU batch size explicitly
+    perf:
+        songunet_checkpoint_level: 2
+        # Enable gradient checkpointing to reduce memory usage
+        dataloader_workers: 2
+        # Reduced workers to save memory
     io:
         print_progress_freq: 10000
         regression_checkpoint_path: ./checkpoints_regression/CorrDiffRegressionUNet.0.850048.mdlus
         # Path to load the regression checkpoint (train regression model first!)
+
+# Validation dataset configuration
+validation:
+    gefs_dir: ../../../NZ_GEFS
+    whacs_dir: ../../../WHACS
+    stats_path: ../../../GEFS_WHACS_stats.json
+    input_variables: ["swh", "dirpw", "perpw"]
+    output_variables: ["hs", "dir", "t01"]
+    target_resolution: 0.0625
+    train: false
+    # Explicitly use valid_years (2021, 2022, 2023) instead of train_years
+    train_years: []
+    # Empty to force use of valid_years
+    valid_years: [2021, 2022, 2023]
 
 # Parameters for wandb logging
 wandb:
