@@ -193,6 +193,21 @@ class NZMiniDataset(DownscalingDataset):
 
         self.gefs_data = xr.concat(datasets, dim="time").sortby("time")
 
+        # Ensure GEFS latitude ordering matches target grid convention
+        # (south-to-north, increasing latitude values). Some source files are
+        # north-to-south, which would otherwise vertically flip inputs.
+        lat_coord = None
+        if "lat" in self.gefs_data.coords:
+            lat_coord = "lat"
+        elif "latitude" in self.gefs_data.coords:
+            lat_coord = "latitude"
+
+        if lat_coord is not None:
+            lat_vals = self.gefs_data[lat_coord].values
+            if lat_vals.size > 1 and lat_vals[0] > lat_vals[-1]:
+                self.gefs_data = self.gefs_data.sortby(lat_coord)
+                print(f"  GEFS latitude reordered to increasing ({lat_coord})")
+
         # Handle different dimension names
         if 'lat' in self.gefs_data.sizes:
             gefs_nlat = self.gefs_data.sizes['lat']
