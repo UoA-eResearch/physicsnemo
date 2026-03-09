@@ -43,11 +43,11 @@ training:
     perf:
         songunet_checkpoint_level: 2
         # Enable gradient checkpointing to reduce memory usage
-        dataloader_workers: 2
+        dataloader_workers: 4
         # Reduced workers to save memory
     io:
         print_progress_freq: 10000
-        regression_checkpoint_path: ./checkpoints_regression/CorrDiffRegressionUNet.0.850048.mdlus
+        regression_checkpoint_path: ./checkpoints_regression/CorrDiffRegressionUNet.0.1750016.mdlus
         # Path to load the regression checkpoint (train regression model first!)
 
 # Validation dataset configuration

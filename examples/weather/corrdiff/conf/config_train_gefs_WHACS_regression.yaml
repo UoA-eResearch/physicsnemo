@@ -41,7 +41,7 @@ training:
         batch_size_per_gpu: 64
         # Explicitly set per-GPU batch size
     perf:
-        dataloader_workers: 2
+        dataloader_workers: 4
         # Reduced workers to save memory
         songunet_checkpoint_level: 2
         # Enable gradient checkpointing to reduce memory usage
