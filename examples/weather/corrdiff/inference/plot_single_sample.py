@@ -23,6 +23,16 @@ import netCDF4 as nc
 import numpy as np
 
 
+# Mapping from WHACS output variable names to GEFS input variable names
+WHACS_to_GEFS = {
+    "hs": "swh",
+    "dir": "dirpw",
+    "t01": "perpw",
+}
+
+GEFS_to_WHACS = {v: k for k, v in WHACS_to_GEFS.items()}
+
+
 def pattern_correlation(x, y):
     """Pattern correlation"""
     mx = np.mean(x)
@@ -36,7 +46,23 @@ def pattern_correlation(x, y):
     return a / b
 
 
-def plot_channels(group, time_idx: int):
+def orient_input_like_truth(x, truth):
+    """Orient an input field to best match the truth field."""
+    x = np.asarray(x)
+    truth = np.asarray(truth)
+
+    raw_pc = pattern_correlation(x, truth)
+    flip_pc = pattern_correlation(np.flipud(x), truth)
+
+    raw_abs = abs(raw_pc) if np.isfinite(raw_pc) else -np.inf
+    flip_abs = abs(flip_pc) if np.isfinite(flip_pc) else -np.inf
+
+    if flip_abs > raw_abs:
+        return np.flipud(x)
+    return x
+
+
+def plot_channels(group, time_idx: int, truth_group=None):
     """Plot channels"""
     # weather sub-plot
     num_channels = len(group.variables)
@@ -56,9 +82,15 @@ def plot_channels(group, time_idx: int):
 
     for ch, ax in zip(sorted(group.variables), axs.flat):
         # label row
-        x = group[ch][time_idx]
+        x = np.asarray(group[ch][time_idx])
+        if truth_group is not None:
+            mapped = GEFS_to_WHACS.get(ch)
+            if mapped is not None and mapped in truth_group.variables:
+                x = orient_input_like_truth(x, truth_group[mapped][time_idx])
         ax.set_title(ch)
-        ax.imshow(x)
+        ax.imshow(x, origin="lower")
+
+    return fig
 
 
 def channel_eq(a, b):
@@ -84,8 +116,8 @@ def get_clim(output_channels, f):
         y = f["prediction"][channel][:]
         truth = f["truth"][channel][:]
 
-        vmin = min([y.min(), truth.min()])
-        vmax = max([y.max(), truth.max()])
+        vmin = truth.min()
+        vmax = truth.max()
         colorlimits[channel] = (vmin, vmax)
     return colorlimits
 
@@ -130,9 +162,11 @@ def main(file, output_dir, sample):
             truth = f["truth"][channel][idx]
 
             # search for input_channel
+            # Map WHACS output channel name to GEFS input channel name
             input_channels = list(f["input"].variables)
-            if channel in input_channels:
-                x = f["input"][channel][idx]
+            gefs_channel = WHACS_to_GEFS.get(channel, channel)
+            if gefs_channel in input_channels:
+                x = orient_input_like_truth(f["input"][gefs_channel][idx], truth)
             else:
                 x = None
 
@@ -184,9 +218,11 @@ def main(file, output_dir, sample):
         time = times[idx]
         plt.suptitle(f"Time {time.isoformat()}")
         plt.savefig(f"{output_dir}/{time.isoformat()}.sample.png")
+        plt.close(fig)
 
-        plot_channels(f["input"], idx)
+        input_fig = plot_channels(f["input"], idx, truth_group=f["truth"])
         plt.savefig(f"{output_dir}/{time.isoformat()}.input.png")
+        plt.close(input_fig)
 
 
 if __name__ == "__main__":

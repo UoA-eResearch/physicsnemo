@@ -16,6 +16,7 @@
 
 import joblib
 import argparse
+import os
 
 import matplotlib.pyplot as plt
 import xarray
@@ -69,4 +70,4 @@ if __name__ == "__main__":
     parser.add_argument("--n-samples", help="Number of samples", default=5, type=int)
     # Parse the arguments
     args = parser.parse_args()
-    main(args.netcdf_file, args.output_dir, args.n_samples)
+    plot_samples(args.netcdf_file, args.output_dir, args.n_samples)
