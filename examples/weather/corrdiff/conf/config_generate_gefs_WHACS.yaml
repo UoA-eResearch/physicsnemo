@@ -1,0 +1,77 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+hydra:
+    job:
+          chdir: false
+          name: generate_gefs_whacs
+    run:
+          dir: ./outputs/${hydra:job.name}
+    searchpath:
+          - pkg://conf/base # Do not modify
+
+# Base parameters for dataset, model, and generation
+defaults:
+    - dataset: gefs_WHACS
+    # The dataset type for generation.
+    # Uses the gefs_WHACS dataset with New Zealand GEFS/WHACS data
+
+    - generation: non_patched
+    # The base generation parameters.
+    # Non-patched is appropriate for the small New Zealand domain
+    - _self_
+
+# Dataset parameters override for validation generation
+dataset:
+    train: false
+    train_years: []
+    valid_years: [2021, 2022, 2023]
+
+# Generation parameters to specialize
+generation:
+    num_ensembles: 4
+    # int, number of ensembles to generate per input
+    seed_batch_size: 1
+    # int, size of the batched inference
+    times: null
+    # Explicitly set to null so generate.py can safely check both times and times_range
+    times_range:
+        - "2023-01-01T00:00:00"
+        - "2023-01-05T00:00:00"
+        - 6
+    # Generate predictions for early January 2023 validation period
+    # Times in ISO 8601 format or use times_range to specify a date range
+    inference_mode: all
+    # Inference mode: "regression" (mean only), "diffusion" (noise), or "all" (mean + noise)
+    hr_mean_conditioning: true
+    # If true, use regression output as mean for diffusion sampling
+    has_lead_time: false
+    # No lead time dimension for WHACS dataset
+    
+    io:
+        res_ckpt_filename: ./checkpoints_diffusion/EDMPrecondSuperResolution.0.620032.mdlus
+        # Path to checkpoint file for the diffusion model
+        reg_ckpt_filename: ./checkpoints_regression/CorrDiffRegressionUNet.0.850048.mdlus
+        # Path to checkpoint filename for the regression model
+        output_filename: corrdiff_output.nc
+        # Output file path for generated samples
+
+# Parameters for wandb logging
+wandb:
+    mode: offline
+    # Configure whether to use wandb: "offline", "online", "disabled"
+    results_dir: "./wandb"
+    # Directory to store wandb results
