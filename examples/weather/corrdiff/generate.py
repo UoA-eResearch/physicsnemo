@@ -322,6 +322,15 @@ def main(cfg: DictConfig) -> None:
     # generate images
     output_path = getattr(cfg.generation.io, "output_filename", "corrdiff_output.nc")
     logger0.info(f"Generating images, saving results to {output_path}...")
+    use_threaded_writer = (
+        cfg.generation.perf.io_synchronous
+        and cfg.generation.perf.num_writer_workers > 1
+    )
+    if dist.rank == 0 and cfg.generation.perf.io_synchronous and not use_threaded_writer:
+        logger0.info(
+            "Threaded NetCDF writing disabled because num_writer_workers <= 1; "
+            "using inline writes for stability."
+        )
     batch_size = 1
     warmup_steps = min(len(times) - 1, 2)
     # Generates model predictions from the input data using the specified
@@ -359,7 +368,7 @@ def main(cfg: DictConfig) -> None:
                     has_lead_time=has_lead_time,
                 )
 
-                if cfg.generation.perf.io_synchronous:
+                if use_threaded_writer:
                     writer_executor = ThreadPoolExecutor(
                         max_workers=cfg.generation.perf.num_writer_workers
                     )
@@ -410,7 +419,7 @@ def main(cfg: DictConfig) -> None:
                 image_out = generate_fn()
                 if dist.rank == 0:
                     batch_size = image_out.shape[0]
-                    if cfg.generation.perf.io_synchronous:
+                    if use_threaded_writer:
                         # write out data in a seperate thread so we don't hold up inferencing
                         writer_threads.append(
                             writer_executor.submit(
@@ -452,7 +461,7 @@ def main(cfg: DictConfig) -> None:
                 )
 
             # make sure all the workers are done writing
-            if dist.rank == 0 and cfg.generation.perf.io_synchronous:
+            if dist.rank == 0 and use_threaded_writer:
                 for thread in list(writer_threads):
                     thread.result()
                     writer_threads.remove(thread)
