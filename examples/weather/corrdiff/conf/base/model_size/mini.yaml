@@ -17,6 +17,9 @@
 # limitations under the License.
 
 
+size: mini
+# Model size label for logging purposes.
+
 model_args:
   # Base multiplier for the number of channels across the network.
   model_channels: 64
