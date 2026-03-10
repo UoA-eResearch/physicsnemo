@@ -67,6 +67,7 @@ class NZMiniDataset(DownscalingDataset):
         input_variables: Union[List[str], None] = None,
         output_variables: Union[List[str], None] = None,
         target_resolution: float = 0.0625,
+        crop_to_multiple_of_16: bool = False,
     ):
         """
         Initialize NZ dataset with lazy loading.
@@ -91,11 +92,16 @@ class NZMiniDataset(DownscalingDataset):
             WHACS variables to use as output (default: hs, dir, t01)
         target_resolution : float
             Target grid resolution in degrees (default: 0.0625)
+        crop_to_multiple_of_16 : bool
+            If True, center-crop target grid dimensions to nearest lower multiples
+            of 16 (default: False). Useful for deep U-Net models that require
+            spatial dimensions divisible by 16.
         """
         self.gefs_dir = gefs_dir
         self.whacs_dir = whacs_dir
         self.target_resolution = target_resolution
         self.upsample_factor = 4  # GEFS 0.25° to WHACS ~0.0625°
+        self.crop_to_multiple_of_16 = crop_to_multiple_of_16
         
         # Set default variables
         if input_variables is None:
@@ -294,6 +300,11 @@ class NZMiniDataset(DownscalingDataset):
         # Create grid with dimensions matching upsampled GEFS
         self.grid_lon = np.linspace(lon_min, lon_max, upsampled_nlon)
         self.grid_lat = np.linspace(lat_min, lat_max, upsampled_nlat)
+        self._crop_lat_slice = slice(None)
+        self._crop_lon_slice = slice(None)
+
+        if self.crop_to_multiple_of_16:
+            self._crop_target_grid_to_multiple(16)
         
         self.grid_x, self.grid_y = np.meshgrid(self.grid_lon, self.grid_lat)
         self.img_shape = self.grid_y.shape
@@ -302,6 +313,42 @@ class NZMiniDataset(DownscalingDataset):
         self._create_land_mask()
         
         print(f"  Target grid: {self.img_shape[0]} x {self.img_shape[1]}")
+
+    def _crop_target_grid_to_multiple(self, multiple: int) -> None:
+        """Center-crop 1D grid coordinates to nearest lower multiple."""
+        nlat = self.grid_lat.size
+        nlon = self.grid_lon.size
+        target_nlat = (nlat // multiple) * multiple
+        target_nlon = (nlon // multiple) * multiple
+
+        if target_nlat <= 0 or target_nlon <= 0:
+            raise ValueError(
+                f"Cannot crop target grid {nlat}x{nlon} to a positive multiple of {multiple}."
+            )
+
+        crop_lat = nlat - target_nlat
+        crop_lon = nlon - target_nlon
+        if crop_lat == 0 and crop_lon == 0:
+            print(
+                f"  Target grid already divisible by {multiple}: {nlat} x {nlon}"
+            )
+            return
+
+        lat_start = crop_lat // 2
+        lat_end = lat_start + target_nlat
+        lon_start = crop_lon // 2
+        lon_end = lon_start + target_nlon
+
+        self._crop_lat_slice = slice(lat_start, lat_end)
+        self._crop_lon_slice = slice(lon_start, lon_end)
+
+        self.grid_lat = self.grid_lat[lat_start:lat_end]
+        self.grid_lon = self.grid_lon[lon_start:lon_end]
+
+        print(
+            f"  Cropped target grid to multiple of {multiple}: "
+            f"{nlat}x{nlon} -> {target_nlat}x{target_nlon}"
+        )
 
     def _create_land_mask(self) -> None:
         """Create a mask for land areas using NZ coastline shapefile with geocube.
@@ -567,6 +614,7 @@ class NZMiniDataset(DownscalingDataset):
         # Load GEFS input and upsample
         x_gefs = self._load_gefs_sample(gefs_idx)
         x = self.upsample(x_gefs)
+        x = x[:, self._crop_lat_slice, self._crop_lon_slice]
         
         # Add invariants to input (lat/lon grids)
         lon_grid = self.grid_x.astype(np.float32)

@@ -31,6 +31,9 @@ defaults:
     - training: ${model}
     - _self_
 
+dataset:
+    crop_to_multiple_of_16: true
+
 # Training parameters
 training:
     hp:
@@ -58,6 +61,7 @@ validation:
     input_variables: ["swh", "dirpw", "perpw"]
     output_variables: ["hs", "dir", "t01"]
     target_resolution: 0.0625
+    crop_to_multiple_of_16: true
     train: false
     # Explicitly use valid_years (2021, 2022, 2023) instead of train_years
     train_years: []

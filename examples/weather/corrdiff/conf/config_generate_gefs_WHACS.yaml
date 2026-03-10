@@ -39,6 +39,7 @@ dataset:
     train: false
     train_years: []
     valid_years: [2021, 2022, 2023]
+    crop_to_multiple_of_16: true
 
 # Generation parameters to specialize
 generation:

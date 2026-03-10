@@ -190,7 +190,7 @@ WHACS
 GEFS
 examples/weather/corrdiff/tensorboard/
 examples/weather/corrdiff/wandb/
-examples/weather/corrdiff/checkpoints_regression
-examples/weather/corrdiff/checkpoints_diffusion
+*.mdlus
+*.pt
 *.png
 *.nc
