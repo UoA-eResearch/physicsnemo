@@ -27,7 +27,7 @@ hydra:
 defaults:
     - dataset: gefs_WHACS
     - model: regression
-    - model_size: mini
+    - model_size: normal
     - training: ${model}
     - _self_  # Must be last to override inherited configs
 

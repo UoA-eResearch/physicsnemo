@@ -62,7 +62,7 @@ generation:
     # No lead time dimension for WHACS dataset
     
     io:
-        res_ckpt_filename: ./checkpoints_diffusion/EDMPrecondSuperResolution.0.860032.mdlus
+        res_ckpt_filename: ./checkpoints_diffusion/EDMPrecondSuperResolution.0.1550016.mdlus
         # Path to checkpoint file for the diffusion model
         reg_ckpt_filename: ./checkpoints_regression/CorrDiffRegressionUNet.0.1750016.mdlus
         # Path to checkpoint filename for the regression model
