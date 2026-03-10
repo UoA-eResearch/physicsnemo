@@ -42,7 +42,7 @@ dataset:
 
 # Generation parameters to specialize
 generation:
-    num_ensembles: 4
+    num_ensembles: 1
     # int, number of ensembles to generate per input
     seed_batch_size: 1
     # int, size of the batched inference
@@ -62,9 +62,9 @@ generation:
     # No lead time dimension for WHACS dataset
     
     io:
-        res_ckpt_filename: ./checkpoints_diffusion/EDMPrecondSuperResolution.0.620032.mdlus
+        res_ckpt_filename: ./checkpoints_diffusion/EDMPrecondSuperResolution.0.860032.mdlus
         # Path to checkpoint file for the diffusion model
-        reg_ckpt_filename: ./checkpoints_regression/CorrDiffRegressionUNet.0.850048.mdlus
+        reg_ckpt_filename: ./checkpoints_regression/CorrDiffRegressionUNet.0.1750016.mdlus
         # Path to checkpoint filename for the regression model
         output_filename: corrdiff_output.nc
         # Output file path for generated samples

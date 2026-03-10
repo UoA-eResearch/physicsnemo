@@ -45,23 +45,6 @@ def pattern_correlation(x, y):
 
     return a / b
 
-
-def orient_input_like_truth(x, truth):
-    """Orient an input field to best match the truth field."""
-    x = np.asarray(x)
-    truth = np.asarray(truth)
-
-    raw_pc = pattern_correlation(x, truth)
-    flip_pc = pattern_correlation(np.flipud(x), truth)
-
-    raw_abs = abs(raw_pc) if np.isfinite(raw_pc) else -np.inf
-    flip_abs = abs(flip_pc) if np.isfinite(flip_pc) else -np.inf
-
-    if flip_abs > raw_abs:
-        return np.flipud(x)
-    return x
-
-
 def plot_channels(group, time_idx: int, truth_group=None):
     """Plot channels"""
     # weather sub-plot
@@ -86,7 +69,7 @@ def plot_channels(group, time_idx: int, truth_group=None):
         if truth_group is not None:
             mapped = GEFS_to_WHACS.get(ch)
             if mapped is not None and mapped in truth_group.variables:
-                x = orient_input_like_truth(x, truth_group[mapped][time_idx])
+                x = truth_group[mapped][time_idx]
         ax.set_title(ch)
         ax.imshow(x, origin="lower")
 
@@ -166,7 +149,7 @@ def main(file, output_dir, sample):
             input_channels = list(f["input"].variables)
             gefs_channel = WHACS_to_GEFS.get(channel, channel)
             if gefs_channel in input_channels:
-                x = orient_input_like_truth(f["input"][gefs_channel][idx], truth)
+                x = f["input"][gefs_channel][idx]
             else:
                 x = None
 
