@@ -159,7 +159,8 @@ def main(cfg: DictConfig) -> None:
     amp_dtype = torch.float16 if (fp_optimizations == "amp-fp16") else torch.bfloat16
     logger.info(f"Saving the outputs in {os.getcwd()}")
     checkpoint_dir = get_checkpoint_dir(
-        str(cfg.training.io.get("checkpoint_dir", ".")), cfg.model.name
+        str(cfg.training.io.get("checkpoint_dir", ".")),
+        f"{cfg.model.name}_{model_size_label}",
     )
     if cfg.training.hp.batch_size_per_gpu == "auto":
         cfg.training.hp.batch_size_per_gpu = (
