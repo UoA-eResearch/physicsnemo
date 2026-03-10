@@ -136,6 +136,12 @@ def main(cfg: DictConfig) -> None:
     OmegaConf.resolve(cfg)
     dataset_cfg = OmegaConf.to_container(cfg.dataset)  # TODO needs better handling
 
+    # Build a TensorBoard tag prefix that encodes the model type and size so
+    # that losses from different runs appear in separate plots when logs are
+    # loaded together (e.g. via tensorboard --logdir=./output).
+    model_size_label = getattr(cfg.model, "size", "normal")
+    tb_prefix = f"{cfg.model.name}/{model_size_label}/"
+
     # Register custom dataset if specified in config
     register_dataset(cfg.dataset.type)
     logger0.info(f"Using dataset: {cfg.dataset.type}")
@@ -629,9 +635,9 @@ def main(cfg: DictConfig) -> None:
                     n_average_loss_running_mean += 1
 
                     if dist.rank == 0:
-                        writer.add_scalar("training_loss", average_loss, cur_nimg)
+                        writer.add_scalar(f"{tb_prefix}training_loss", average_loss, cur_nimg)
                         writer.add_scalar(
-                            "training_loss_running_mean",
+                            f"{tb_prefix}training_loss_running_mean",
                             average_loss_running_mean,
                             cur_nimg,
                         )
@@ -666,7 +672,7 @@ def main(cfg: DictConfig) -> None:
                                 )
                             current_lr = g["lr"]
                             if dist.rank == 0:
-                                writer.add_scalar("learning_rate", current_lr, cur_nimg)
+                                writer.add_scalar(f"{tb_prefix}learning_rate", current_lr, cur_nimg)
                         handle_and_clip_gradients(
                             model,
                             grad_clip_threshold=cfg.training.hp.grad_clip_threshold,
@@ -814,7 +820,7 @@ def main(cfg: DictConfig) -> None:
                                 average_valid_loss = valid_loss_sum / dist.world_size
                                 if dist.rank == 0:
                                     writer.add_scalar(
-                                        "validation_loss", average_valid_loss, cur_nimg
+                                        f"{tb_prefix}validation_loss", average_valid_loss, cur_nimg
                                     )
                                     
                                     # Compute and log R² scores for regression models
@@ -895,7 +901,7 @@ def main(cfg: DictConfig) -> None:
                                             # Log per-variable metrics
                                             for metric_name, values in metric_values.items():
                                                 writer.add_scalar(
-                                                    f"validation_{metric_name}/{var_name}",
+                                                    f"{tb_prefix}validation_{metric_name}/{var_name}",
                                                     values[var_idx],
                                                     cur_nimg,
                                                 )
@@ -903,7 +909,7 @@ def main(cfg: DictConfig) -> None:
                                         # Log mean metrics across all variables
                                         for metric_name, values in metric_values.items():
                                             writer.add_scalar(
-                                                f"validation_{metric_name}/mean",
+                                                f"{tb_prefix}validation_{metric_name}/mean",
                                                 np.mean(values),
                                                 cur_nimg,
                                             )
