@@ -39,9 +39,9 @@ training:
     hp:
         training_duration: 4000000
         # Training duration for regression (half of diffusion duration)
-        total_batch_size: 64
+        total_batch_size: 32
         # Batch size to balance memory usage and training speed
-        batch_size_per_gpu: 64
+        batch_size_per_gpu: 32
         # Explicitly set per-GPU batch size
     perf:
         dataloader_workers: 4

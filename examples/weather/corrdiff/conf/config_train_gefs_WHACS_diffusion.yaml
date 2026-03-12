@@ -27,7 +27,7 @@ hydra:
 defaults:
     - dataset: gefs_WHACS
     - model: diffusion
-    - model_size: mini
+    - model_size: normal
     - training: ${model}
     - _self_
 
@@ -39,9 +39,9 @@ training:
     hp:
         training_duration: 8000000
         # Training duration based on the number of processed samples
-        total_batch_size: 64
+        total_batch_size: 32
         # Reduced batch size for memory efficiency with diffusion
-        batch_size_per_gpu: 64
+        batch_size_per_gpu: 32
         # Set per-GPU batch size explicitly
     perf:
         songunet_checkpoint_level: 2
@@ -50,7 +50,7 @@ training:
         # Reduced workers to save memory
     io:
         print_progress_freq: 10000
-        regression_checkpoint_path: ./checkpoints_regression/CorrDiffRegressionUNet.0.1750016.mdlus
+        regression_checkpoint_path: ./checkpoints_regression_normal/CorrDiffRegressionUNet.0.1335008.mdlus
         # Path to load the regression checkpoint (train regression model first!)
 
 # Validation dataset configuration
