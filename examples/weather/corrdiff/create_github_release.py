@@ -229,21 +229,6 @@ The regression model provides the base downscaled prediction, while the diffusio
 
 ---
 
-## 📝 Citation
-
-If you use these models, please cite:
-
-```bibtex
-@software{{physicsnemo_nz_whacs,
-  title = {{NZ GEFS-WHACS Wave Downscaling Models}},
-  author = {{NVIDIA PhysicsNeMo Team}},
-  year = {{{datetime.now().year}}},
-  url = {{https://github.com/NVIDIA/physicsnemo}}
-}}
-```
-
----
-
 ## 🐛 Known Issues & Notes
 
 - Models are optimized for NZ domain only
@@ -466,8 +451,8 @@ def main():
     
     # Find checkpoints
     print("📦 Finding checkpoints...")
-    regression_ckpt_path = find_latest_checkpoint('checkpoints_regression')
-    diffusion_ckpt_path = find_latest_checkpoint('checkpoints_diffusion')
+    regression_ckpt_path = find_latest_checkpoint('checkpoints_regression_normal')
+    diffusion_ckpt_path = find_latest_checkpoint('checkpoints_diffusion_normal')
     
     if not regression_ckpt_path:
         print("❌ Error: No regression checkpoint found in checkpoints_regression/")
@@ -486,7 +471,7 @@ def main():
     # Load configs
     print("📋 Loading configuration files...")
     regression_config = load_config_info('conf/config_train_gefs_WHACS_regression.yaml')
-    diffusion_config = load_config_info('conf/config_train_gefs_WHACS.yaml')
+    diffusion_config = load_config_info('conf/config_train_gefs_WHACS_diffusion.yaml')
     print(f"  ✓ Regression config: model_size={regression_config['model_size']}")
     print(f"  ✓ Diffusion config: model_size={diffusion_config['model_size']}")
     print()
